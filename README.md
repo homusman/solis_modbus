@@ -1,4 +1,5 @@
 # Solis Modbus Integration for Home Assistant
+My fork to implement some slightly different control-actuators so that it is consistent with other inverters I have. for HA arbitrage. 
 
 ## Description
 
