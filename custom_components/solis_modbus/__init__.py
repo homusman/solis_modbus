@@ -785,7 +785,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         from .dispatch_control import SolisDispatchCoordinator
         set_controller(hass, controller, entry)
         if inverter_config.type in (InverterType.HYBRID, InverterType.ENERGY):
-            entry.runtime_data.dispatch_control = SolisDispatchCoordinator(hass, controller)
+            entry.runtime_data.dispatch_control = SolisDispatchCoordinator(hass, controller, entry.entry_id)
 
         _LOGGER.debug(f"Config entry setup for {connection_type} connection: {connection_id}, slave {slave}")
 
