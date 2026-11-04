@@ -30,6 +30,7 @@ class SolisDispatchCoordinator:
         self.controller = controller
         self.self_use = True
         self.target_w = 0
+        self.last_direction = 2  # Prefer discharge mode for an initial zero setpoint.
         self.last_error = None
         self.last_request = None
         self.refresh_interval = 30
@@ -57,8 +58,7 @@ class SolisDispatchCoordinator:
                 await self._write_off()
                 self.self_use = True
             else:
-                if self.target_w:
-                    await self._write_target(self.target_w)
+                await self._write_target(self.target_w)
                 self.self_use = False
             self.notify()
 
@@ -68,10 +68,9 @@ class SolisDispatchCoordinator:
         watts = int(round(watts / 10)) * 10
         async with self._lock:
             if not self.self_use:
-                if watts:
-                    await self._write_target(watts)
-                else:
-                    await self._write_off()
+                await self._write_target(watts)
+            if watts:
+                self.last_direction = 2 if watts > 0 else 1
             self.target_w = watts
             self.notify()
 
@@ -91,17 +90,23 @@ class SolisDispatchCoordinator:
         if not self.controller.connected():
             self.last_error = "Modbus disconnected; dispatch not delivered"
             raise RuntimeError(self.last_error)
-        mode = 2 if watts > 0 else 1
+        # A zero target is still a remote-control request. Keep the previous
+        # force direction and write zero to its setpoint instead of RC mode=0.
+        # Whether S5 firmware physically holds 0 W must be verified.
+        mode = 2 if watts > 0 else (1 if watts < 0 else self.last_direction)
         raw = abs(watts) // 10
         async with self.controller.write_batch():
             await self.controller.async_write_holding_register(MODE, mode)
             await self.controller.async_write_holding_register(DISCHARGE if watts > 0 else CHARGE, raw)
             await self.controller.async_write_holding_register(RC_TIMEOUT, 2)
         self.last_error = None
-        self.last_request = f"{watts} W RC command queued; actual output unverified"
+        self.last_request = (
+            f"{watts} W RC {'discharge' if mode == 2 else 'charge'} command queued; "
+            "actual output unverified"
+        )
 
     async def _heartbeat(self, _now=None):
-        if self.self_use or self.target_w == 0 or self._lock.locked():
+        if self.self_use or self._lock.locked():
             return
         async with self._lock:
             try:
@@ -114,7 +119,7 @@ class SolisDispatchCoordinator:
 
 class SolisDispatchPower(NumberEntity):
     _attr_has_entity_name = True
-    _attr_name = "Dispatch battery power"
+    _attr_name = "Forced battery power"
     _attr_native_unit_of_measurement = "W"
     _attr_mode = NumberMode.BOX
     _attr_native_step = 10
@@ -137,6 +142,7 @@ class SolisDispatchPower(NumberEntity):
     @property
     def extra_state_attributes(self):
         return {
+            "control_mode": "self_use" if self.coord.self_use else "forced_power",
             "command_status": self.coord.last_request,
             "error": self.coord.last_error,
             "note": "Requested watts only. Verify physical output using battery power telemetry.",
@@ -148,7 +154,7 @@ class SolisDispatchPower(NumberEntity):
 
 class SolisDispatchSelfUse(SwitchEntity):
     _attr_has_entity_name = True
-    _attr_name = "Dispatch self use"
+    _attr_name = "Self-Use Mode"
     _attr_should_poll = False
 
     def __init__(self, coord):
@@ -166,8 +172,10 @@ class SolisDispatchSelfUse(SwitchEntity):
     @property
     def extra_state_attributes(self):
         return {
-            "mode": "self_use" if self.coord.self_use else "remote_dispatch",
-            "status": self.coord.last_request,
+            "mode": "self_use" if self.coord.self_use else "forced_power",
+            "switch_on": "Self-use mode",
+            "switch_off": "Forced-power mode",
+            "command_status": self.coord.last_request,
             "error": self.coord.last_error,
             "firmware_support": "not verified",
         }
