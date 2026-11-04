@@ -11,6 +11,7 @@ from datetime import timedelta
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.storage import Store
 
 from .helpers import unique_id_generator
 
@@ -25,11 +26,13 @@ RC_TIMEOUT = 43282
 class SolisDispatchCoordinator:
     """Translate signed battery power into serialized remote-control writes."""
 
-    def __init__(self, hass, controller):
+    def __init__(self, hass, controller, entry_id):
         self.hass = hass
         self.controller = controller
-        self.self_use = True
+        self.self_use = None  # Unknown until the hardware mode is read.
         self.target_w = 0
+        self.initialized = False
+        self._store = Store(hass, 1, f"solis_be_dispatch_{entry_id}")
         self.last_direction = 2  # Prefer discharge mode for an initial zero setpoint.
         self.last_error = None
         self.last_request = None
@@ -39,9 +42,40 @@ class SolisDispatchCoordinator:
         self.entities = []
 
     async def start(self):
+        """Recover last staged target and the inverter's actual RC mode."""
+        saved = await self._store.async_load() or {}
+        saved_target = saved.get("target_w", 0)
+        if isinstance(saved_target, (int, float)) and -self.max_w <= saved_target <= self.max_w:
+            self.target_w = int(round(saved_target / 10)) * 10
+        try:
+            modes = await self.controller.async_read_holding_register(MODE, 1)
+            if not modes or modes[0] not in (0, 1, 2):
+                raise RuntimeError(f"Cannot identify Solis RC mode: {modes}")
+            mode = modes[0]
+            self.self_use = mode == 0
+            if mode in (1, 2):
+                self.last_direction = mode
+                reg = CHARGE if mode == 1 else DISCHARGE
+                power = await self.controller.async_read_holding_register(reg, 1)
+                if not power:
+                    raise RuntimeError("Cannot read active Solis RC power setpoint")
+                self.target_w = int(power[0]) * 10 * (1 if mode == 2 else -1)
+            self.initialized = True
+            self.last_error = None
+            self.last_request = "Recovered inverter RC state; no dispatch write on startup"
+        except Exception as exc:
+            self.initialized = False
+            self.self_use = None
+            self.last_error = str(exc)
+            self.last_request = "RC state not verified on startup"
+            _LOGGER.warning("Solis dispatch startup recovery failed: %s", exc)
+        self.notify()
         self._unsub = async_track_time_interval(
             self.hass, self._heartbeat, timedelta(seconds=self.refresh_interval)
         )
+
+    async def _save(self):
+        await self._store.async_save({"target_w": self.target_w})
 
     async def stop(self):
         if self._unsub is not None:
@@ -60,6 +94,8 @@ class SolisDispatchCoordinator:
             else:
                 await self._write_target(self.target_w)
                 self.self_use = False
+            self.initialized = True
+            await self._save()
             self.notify()
 
     async def set_power(self, watts: float):
@@ -72,6 +108,8 @@ class SolisDispatchCoordinator:
             if watts:
                 self.last_direction = 2 if watts > 0 else 1
             self.target_w = watts
+            self.initialized = True
+            await self._save()
             self.notify()
 
     @property
@@ -106,7 +144,7 @@ class SolisDispatchCoordinator:
         )
 
     async def _heartbeat(self, _now=None):
-        if self.self_use or self._lock.locked():
+        if not self.initialized or self.self_use is not False or self._lock.locked():
             return
         async with self._lock:
             try:
@@ -134,6 +172,10 @@ class SolisDispatchPower(NumberEntity):
     @property
     def device_info(self):
         return self.coord.controller.device_info
+
+    @property
+    def available(self):
+        return self.coord.initialized
 
     @property
     def native_value(self):
@@ -164,6 +206,10 @@ class SolisDispatchSelfUse(SwitchEntity):
     @property
     def device_info(self):
         return self.coord.controller.device_info
+
+    @property
+    def available(self):
+        return self.coord.initialized
 
     @property
     def is_on(self):
