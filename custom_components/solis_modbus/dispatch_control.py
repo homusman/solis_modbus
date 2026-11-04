@@ -103,6 +103,8 @@ class SolisDispatchCoordinator:
             raise ValueError(f"Solis dispatch target must be within +/-{self.max_w} W")
         watts = int(round(watts / 10)) * 10
         async with self._lock:
+            if self.self_use is None:
+                raise RuntimeError('Solis remote-control mode not yet verified')
             if not self.self_use:
                 await self._write_target(watts)
             if watts:
