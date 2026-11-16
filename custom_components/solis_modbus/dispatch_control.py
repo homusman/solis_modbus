@@ -97,7 +97,7 @@ class SolisDispatchCoordinator:
         raw = abs(watts) // 10
         async with self.controller.write_batch():
             await self.controller.async_write_holding_register(MODE, mode)
-            await self.controller.async_write_holding_register(DISCHARGE if watts > 0 else CHARGE, raw)
+            await self.controller.async_write_holding_register(DISCHARGE if mode == 2 else CHARGE, raw)
             await self.controller.async_write_holding_register(RC_TIMEOUT, 2)
         self.last_error = None
         self.last_request = (
