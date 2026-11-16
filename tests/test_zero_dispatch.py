@@ -12,11 +12,8 @@ from types import SimpleNamespace
 SOURCE = Path(__file__).parents[1] / "custom_components/solis_modbus/dispatch_control.py"
 # Load the coordinator without Home Assistant's entity and scheduling dependencies.
 tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
-nodes = [node for node in tree.body if isinstance(node, ast.ClassDef)
-         and node.name == "SolisDispatchCoordinator"]
-namespace = {"asyncio": asyncio, "_LOGGER": logging.getLogger(__name__),
-             "MODE": 43135, "DISCHARGE": 43129, "CHARGE": 43136,
-             "RC_TIMEOUT": 43282}
+nodes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "SolisDispatchCoordinator"]
+namespace = {"asyncio": asyncio, "_LOGGER": logging.getLogger(__name__), "MODE": 43135, "DISCHARGE": 43129, "CHARGE": 43136, "RC_TIMEOUT": 43282}
 exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), "exec"), namespace)
 Coordinator = namespace["SolisDispatchCoordinator"]
 
@@ -41,12 +38,12 @@ class Inverter:
     @property
     def output(self):
         mode = self.registers[43135]
-        return (self.registers[43129] * 10 if mode == 2 else
-                -self.registers[43136] * 10 if mode == 1 else None)
+        return self.registers[43129] * 10 if mode == 2 else -self.registers[43136] * 10 if mode == 1 else None
 
 
 def immediate_async_test(method):
     """Run in-memory async calls; fail if a mock unexpectedly waits for I/O."""
+
     @wraps(method)
     def run(self):
         coroutine = method(self)
@@ -57,6 +54,7 @@ def immediate_async_test(method):
         finally:
             coroutine.close()
         self.fail("In-memory controller test unexpectedly suspended")
+
     return run
 
 
@@ -80,8 +78,7 @@ class ZeroDispatchTests(unittest.TestCase):
             await self.coord.set_power(target)
             self.inverter.writes.clear()
             await self.coord.set_power(0)
-            self.assertEqual(self.inverter.writes,
-                             [(43135, mode), (register, 0), (43282, 2)])
+            self.assertEqual(self.inverter.writes, [(43135, mode), (register, 0), (43282, 2)])
             await self.coord._heartbeat()
             self.assertEqual(self.inverter.output, 0)
 
@@ -104,4 +101,3 @@ class ZeroDispatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

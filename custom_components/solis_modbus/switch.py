@@ -37,6 +37,7 @@ async def async_setup_entry(hass, config_entry: ConfigEntry, async_add_devices):
     dispatch = getattr(config_entry.runtime_data, "dispatch_control", None)
     if dispatch is not None:
         from .dispatch_control import SolisDispatchSelfUse
+
         entity = SolisDispatchSelfUse(dispatch)
         dispatch.entities.append(entity)
         switch_entities.append(entity)

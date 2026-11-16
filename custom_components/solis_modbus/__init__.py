@@ -783,6 +783,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         # Dedicated RC controls are independent of the telemetry polling profile.
         from .dispatch_control import SolisDispatchCoordinator
+
         set_controller(hass, controller, entry)
         if inverter_config.type in (InverterType.HYBRID, InverterType.ENERGY):
             entry.runtime_data.dispatch_control = SolisDispatchCoordinator(hass, controller)

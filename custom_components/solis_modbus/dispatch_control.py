@@ -2,6 +2,7 @@
 
 Firmware-dependent RC registers: queued Modbus writes are NOT verified output.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,9 +40,7 @@ class SolisDispatchCoordinator:
         self.entities = []
 
     async def start(self):
-        self._unsub = async_track_time_interval(
-            self.hass, self._heartbeat, timedelta(seconds=self.refresh_interval)
-        )
+        self._unsub = async_track_time_interval(self.hass, self._heartbeat, timedelta(seconds=self.refresh_interval))
 
     async def stop(self):
         if self._unsub is not None:
@@ -100,10 +99,7 @@ class SolisDispatchCoordinator:
             await self.controller.async_write_holding_register(DISCHARGE if mode == 2 else CHARGE, raw)
             await self.controller.async_write_holding_register(RC_TIMEOUT, 2)
         self.last_error = None
-        self.last_request = (
-            f"{watts} W RC {'discharge' if mode == 2 else 'charge'} command queued; "
-            "actual output unverified"
-        )
+        self.last_request = f"{watts} W RC {'discharge' if mode == 2 else 'charge'} command queued; actual output unverified"
 
     async def _heartbeat(self, _now=None):
         if self.self_use or self._lock.locked():
