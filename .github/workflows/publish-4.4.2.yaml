@@ -1,0 +1,47 @@
+name: Publish Solis 4.4.2 hotfix
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/publish-4.4.2.yaml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 21b8870bdee68021cf2bbbf0c330f27ad2f8e4ce
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Verify hotfix
+        run: |
+          python -m unittest discover -s tests -p test_zero_dispatch.py -v
+          python -m compileall -q custom_components/solis_modbus
+          python -c "import json; assert json.load(open('custom_components/solis_modbus/manifest.json'))['version'] == '4.4.2'"
+      - name: Package integration
+        run: |
+          cd custom_components/solis_modbus
+          zip -r ../../solis_modbus.zip . -x '__pycache__/*' '*/__pycache__/*' '*.pyc'
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Fixes zero-power commands after a positive manual battery-power setpoint. Zero now clears the setpoint register for the active charge/discharge direction, preventing a previous discharge target from remaining active.
+
+          Includes regression coverage for 5000 → 0 → 2000 → 0 → -500 → 0, heartbeat refresh, initial zero, and return from self-use.
+
+          Validation: four register-model regression tests and Python compilation. Physical inverter response remains to be confirmed after installation.
+
+          Update through HACS or replace the integration using solis_modbus.zip, then restart Home Assistant.
+          NOTES
+          if gh release view v4.4.2 >/dev/null 2>&1; then
+            echo "Release v4.4.2 already exists; leaving it unchanged."
+          else
+            gh release create v4.4.2 solis_modbus.zip --target 21b8870bdee68021cf2bbbf0c330f27ad2f8e4ce --title "v4.4.2 — Fix zero-power dispatch" --notes-file release-notes.md --latest
+          fi
