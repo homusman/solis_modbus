@@ -1,13 +1,13 @@
 """Exercise the real coordinator against a register-level inverter model."""
+
 import ast
 import asyncio
+import logging
+import unittest
 from contextlib import asynccontextmanager
 from functools import wraps
-import logging
 from pathlib import Path
 from types import SimpleNamespace
-import unittest
-
 
 SOURCE = Path(__file__).parents[1] / "custom_components/solis_modbus/dispatch_control.py"
 # Load the coordinator without Home Assistant's entity and scheduling dependencies.
